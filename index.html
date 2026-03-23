@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"> <!-- 设置字符编码为UTF-8，支持中文显示 -->
+    <title>文物点地图</title> <!-- 浏览器标签页显示的标题 -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"> <!-- 兼容老版本IE模式，现代常用浏览器直接忽略 -->
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width"> <!-- 移动端适配：初始缩放1.0，禁止用户缩放，宽度等于设备宽度 -->
+    <link rel="stylesheet" href="https://a.amap.com/jsapi_demos/static/demo-center/css/demo-center.css"> <!-- 引入高德地图示例中心的样式文件，美化一些UI组件（如信息卡片） -->
+    <style>
+        /* 后面匹配id带#为id选择器，匹配属性要加.为类选择器*/
+        html, 
+        body, 
+        #container { 
+            width:100%; 
+            height:100%; 
+            margin:0; 
+            padding:0; 
+        }
+        /* 让html、body和地图容器占满整个窗口，无内外边距 */
+
+        /* 控制面板：绝对定位，位于左上角，白色背景，圆角阴影，字体设置为微软雅黑，层级高于地图 */
+        #control-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        /* 控制面板：绝对定位，位于左上角，白色背景，圆角阴影，字体设置为微软雅黑，层级高于地图 */
+        #control-panel button {
+            margin: 0 5px;
+            padding: 6px 12px;
+            background: #25A5F7;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        /* 控制面板内按钮样式：蓝色背景，白色文字，圆角，手型光标 */
+
+        /* 按钮悬停时背景加深 */
+        #control-panel button:hover {
+            background: #0c7fd3;
+        }
+        /* 按钮激活状态（当前模式）背景变为橙色 */
+        #control-panel button.active {
+            background: #f90;
+            color: white;
+        }
+        /* 信息卡片：位于右下角，显示当前模式 */
+        .info-card {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgb(255, 255, 255);
+            padding: 10px 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            font-size: 13px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+<body>
+    <!-- 地图容器，高德地图将在此元素内渲染 -->
+    <div id="container"></div>
+    <!-- 控制面板，包含五个模式切换按钮 -->
+    <div id="control-panel">
+        <span style="font-weight:bold; margin-right:10px;">显示模式：</span>
+        <button id="btn-points" class="active">遗址点</button>
+        <button id="btn-heatmap">热力图</button>
+        <button id="btn-polygons">保护区面</button>
+        <button id="btn-cluster">点聚合</button>
+        <button id="btn-all">全部</button>
+    </div>
+    <!-- 右下角信息卡片，用于显示当前模式，由JS动态更新 -->  
+    <div class="info-card" id="info-card">
+        当前模式：显示遗址点
+    </div>
+    
+    <!-- 另一个信息卡片，显示地图当前级别和中心点坐标，id来自引入demo-center.css -->
+    <div class="info">
+        <h4>获取地图级别与中心点坐标</h4>
+        <p>当前级别：<span id="map-zoom">12.5</span></p>
+        <p>当前中心点：<span id="map-center">119.519746,41.321671</span></p>
+    </div>
+    <!-- 引入高德地图JS API v2.0，并传入申请到的key -->
+    <script src="https://webapi.amap.com/maps?v=2.0&key=42603e99afb421ee601302e6c136f810"></script>
+    <!-- 引入高德示例中心的辅助工具JS，可能用于一些demo功能 -->
+    <script src="https://a.amap.com/jsapi_demos/static/demo-center/js/demoutils.js"></script>
+    <!-- 引入高德UI组件库，用于一些UI交互（如控件） -->
+    <script src="https://webapi.amap.com/ui/1.1/main.js"></script>
+    <script>
+        // 更新右下角信息卡片显示当前模式,function在一上来解析时就会找到所有的function而非按顺序从上到下执行
+        function setInfo(text) {
+            document.querySelector("#info-card").innerText = '当前模式：显示' + text;
+        }
+        // 创建地图实例，绑定到id为container的元素上
+        var map = new AMap.Map('container', {
+            zoom: 12.5,
+            center: [119.519746, 41.321671]
+        });
+
+        // 获取并显示当前地图级别和中心点
+        function logMapinfo(){
+            var zoom = map.getZoom(); //获取当前地图级别
+            var center = map.getCenter(); //获取当前地图中心位置
+
+            document.querySelector("#map-zoom").innerText = zoom;
+            document.querySelector("#map-center").innerText = center.toString();
+        };
+        // 监听地图移动结束和缩放结束事件，更新显示的级别和中心点
+        map.on('moveend', logMapinfo);
+        map.on('zoomend', logMapinfo); 
+               
+        // 全局变量声明（用于跨函数共享数据）
+  
+        var markers = [];
+        var polygons = [];
+        var heatmap = null;
+
+        
+        // 设置激活按钮样式（高亮当前模式对应的按钮）
+        function setActiveButton(mode) {
+            // 移除所有按钮的active类 
+            document.querySelectorAll('#control-panel button').forEach(btn => {          
+                btn.classList.remove('active');
+            });
+            // 根据传入模式给对应按钮添加active类
+            if (mode === 'points') document.getElementById('btn-points').classList.add('active');
+            else if (mode === 'heatmap') document.getElementById('btn-heatmap').classList.add('active');
+            else if (mode === 'polygons') document.getElementById('btn-polygons').classList.add('active');
+            else if (mode === 'cluster') document.getElementById('btn-cluster').classList.add('active');
+            else if (mode === 'all') document.getElementById('btn-all').classList.add('active');
+        }
+
+
+        // 使用fetch API异步加载同目录下的data.json文件
+        fetch('data.json')
+            .then(response => response.json())
+            .then(data => {
+                // 将点数据转换为聚合插件所需的格式：每个对象必须包含lnglat字段（经纬度数组）
+                window.clusterPoints = data.points.map(item => ({
+                    lnglat: [item.lng, item.lat],   // 必须字段，经纬度数组
+                    name: item.name,                 // 可选，供后续自定义使用
+                    h_name: item.h_name,
+                    height: item.height
+                }));
+                // 绘制面
+                data.polygons.forEach(poly => {
+                    try {
+                        var polygon = new AMap.Polygon({
+                            path: poly.path,
+                            fillColor: poly.color,
+                            fillOpacity: 0.4,
+                            strokeColor: '#000000',
+                            strokeWeight: 2,
+                            visible: false
+                        });
+                        polygon.setMap(map);
+                        // 绑定点击事件，点击时弹出信息窗口显示该面类型
+                        polygon.on('click', function(e) {
+                            new AMap.InfoWindow({
+                                content: '<div>' + poly.category + '</div>',
+                                offset: new AMap.Pixel(0, -30)
+                            }).open(map, e.lnglat);//e.lnglat是点击处坐标
+                        });
+                        polygons.push(polygon);
+                    } catch (e) {
+                        console.error('绘制面出错：', e, poly);
+                    }
+                });
+                // 绘制点
+                data.points.forEach(item => {
+                    try {
+                        //创建点标记
+                        var marker = new AMap.Marker({
+                            position: [item.lng, item.lat],
+                            title: item.name,
+                            icon: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png',
+                            offset: new AMap.Pixel(-10, -34),
+                        });
+                        marker.data = item;
+                        // 绑定点击事件，点击时弹出信息窗口显示该面类型
+                        marker.on('click', function(e) {
+                            var d = e.target.data;
+                            var content = '<div style="padding:8px;">' +
+                                          '<h4>' + d.h_name + '</h4>' +
+                                          '<p>高程：' + d.height + '</p>' +
+                                          '</div>';
+                            new AMap.InfoWindow({
+                                content: content,
+                                offset: new AMap.Pixel(0, -30)
+                            }).open(map, e.target.getPosition());//e.target.getPosition()是遗址点坐标
+                        });
+                        markers.push(marker);
+                    } catch (e) {
+                        console.error('绘制点出错：', e, item);
+                    }
+                });
+                
+                AMap.plugin(['AMap.MarkerCluster'], function() {
+                    // 创建聚合管理器，参数：地图实例，点数据（初始为空），配置对象
+                    window.cluster = new AMap.MarkerCluster(map, [], {
+                        gridSize: 80,       // 聚合网格大小（像素）
+                        minClusterSize: 2,  // 最少点数达到此值才聚合
+                        // 自定义聚合点样式（当多个点聚合时显示）
+                        renderClusterMarker: function(context) {
+                            var div = document.createElement('div');
+                            div.style.backgroundColor = 'red';
+                            div.style.color = 'white';
+                            div.style.width = '30px';
+                            div.style.height = '30px';
+                            div.style.borderRadius = '50%';
+                            div.style.display = 'flex';
+                            div.style.alignItems = 'center';
+                            div.style.justifyContent = 'center';
+                            div.style.border = '2px solid white';
+                            div.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+                            div.innerText = context.count;      // 显示该聚合点的点数
+                            context.marker.setContent(div);
+                            // 设置偏移量使圆心对准坐标点
+                            context.marker.setOffset(new AMap.Pixel(-15, -15));
+                        },
+                        // 自定义非聚合点样式（可选，如果不设置会用默认蓝色图标）
+                        renderMarker: function(context) {
+                            // 这里可以自定义单个点的样式
+                            var marker = context.marker;
+                            // 从 context.data 获取该点的原始数据（就是你传入的 clusterPoints 中的对应对象）
+                            var data = context.data[0];
+                            // 使用自定义图标或默认
+                            marker.setIcon('https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png');
+                            marker.setOffset(new AMap.Pixel(-10, -34));
+                            // 绑定点击事件，显示信息窗口
+                            marker.on('click', function(e) {
+                                var content = '<div style="padding:8px;">' +
+                                            '<h4>' + data.h_name + '</h4>' +
+                                            '<p>高程：' + data.height + '</p>' +
+                                            '</div>';
+                                new AMap.InfoWindow({
+                                    content: content,
+                                    offset: new AMap.Pixel(0, -30)
+                                }).open(map, e.lnglat);
+                            });
+                        }
+                    });
+                    // 默认隐藏，由按钮控制
+
+                    console.log('✅ 点聚合创建成功', window.cluster);
+                });
+
+
+
+                // 3. 初始化热力图（需要加载插件）              
+                AMap.plugin(['AMap.HeatMap'], function() {
+                    heatmap = new AMap.HeatMap(map, {
+                        radius: 100,          // 热力半径，默认30
+                        opacity: [0.2, 0.8],  // 透明度范围
+                        gradient: {
+                            0.2: 'blue',           // 低热度显示为蓝色
+                            0.4: 'cyan',           // 
+                            0.6: 'lime',           // 
+                            0.8: 'yellow',         // 
+                            1.0: 'red'             // 高热度显示为红色
+                        }
+
+                    });
+                    
+                    // 准备热力图数据
+                    var heatmapData = data.points.map(p => ({
+                        lng: p.lng,
+                        lat: p.lat,
+                        count: p.count || 1  // 使用权重，默认1
+                    }));
+                    // 设置热力图数据及最大权重（用于颜色映射）
+                    heatmap.setDataSet({
+                        data: heatmapData,
+                        max: 5  // 最大权重（可自动计算）
+                    });
+                    
+                    heatmap.hide(); // 初始隐藏
+                    console.log('热力图初始化完成');
+                });
+
+            
+                
+                // 自适应视野（考虑所有点和面顶点）
+                // 收集所有坐标点
+                var allLngLats = [];
+
+                // 添加点的坐标
+                data.points.forEach(p => {
+                    allLngLats.push([p.lng, p.lat]);
+                });
+
+                // 添加面的所有顶点坐标
+                data.polygons.forEach(poly => {
+                    poly.path.forEach(ring => {
+                        ring.forEach(coord => {
+                            allLngLats.push(coord);
+                        });
+                    });
+                });
+
+                // 计算最小和最大经纬度
+                var minLng = Math.min(...allLngLats.map(p => p[0]));
+                var maxLng = Math.max(...allLngLats.map(p => p[0]));
+                var minLat = Math.min(...allLngLats.map(p => p[1]));
+                var maxLat = Math.max(...allLngLats.map(p => p[1]));
+
+                // 创建西南角和东北角
+                var southWest = new AMap.LngLat(minLng, minLat);
+                var northEast = new AMap.LngLat(maxLng, maxLat);
+
+                // 创建 bounds 并设置地图视野
+                var bounds = new AMap.Bounds(southWest, northEast);
+                map.setBounds(bounds);
+                // 将所有点标记添加到地图上（点模式初始激活）
+                markers.forEach(m => m.setMap(map));
+            })
+            .catch(err => console.error('加载数据失败：', err)); 
+        //遗址点模式
+        document.getElementById('btn-points').onclick = function() {
+            setActiveButton('points'); //更新按钮高亮
+            setInfo('遗址点');         //更新信息卡片
+            
+            // 隐藏热力图和面，显示点
+            if (heatmap) heatmap.hide();                    //隐藏热力图
+            if (window.cluster) window.cluster.setData([]);  // ✅ 隐藏聚合
+            polygons.forEach(p => p.hide());               //隐藏面
+            markers.forEach(m => m.show());               // 显示所有点标记（注意show只是显示，之前已通过setMap添加过）
+
+        };
+
+        //热力图模式
+        document.getElementById('btn-heatmap').onclick = function() {
+            setActiveButton('heatmap');
+            setInfo('热力图');
+            
+            // 隐藏点和面，显示热力图
+            if (window.cluster) window.cluster.setData([]);  //隐藏聚合
+            markers.forEach(m => m.hide());     //隐藏点
+            polygons.forEach(p => p.hide());    //隐藏面
+            if (heatmap) heatmap.show();        //显示热力图
+
+        };
+        
+        //保护区模式
+        document.getElementById('btn-polygons').onclick = function() {
+            setActiveButton('polygons');
+            setInfo('保护区面');
+            
+            // 隐藏点和热力图，显示面
+            if (window.cluster) window.cluster.setData([]);  //隐藏聚合
+            markers.forEach(m => m.hide());                 //隐藏点
+            polygons.forEach(p => p.show());                //显示面
+            if (heatmap) heatmap.hide();                    //隐藏热力图
+
+        };
+
+        //点聚合模式
+        document.getElementById('btn-cluster').onclick = function() {
+            setActiveButton('cluster');
+            setInfo('点聚合');
+            if (heatmap) heatmap.hide();               //隐藏热力图  
+            polygons.forEach(p => p.hide());           //隐藏面
+            markers.forEach(m => m.hide());            //隐藏原始点
+            if (window.cluster && window.clusterPoints) {
+                window.cluster.setData(window.clusterPoints);   // 喂数据
+            } else {
+                alert('聚合数据未准备好');
+            }
+
+        };
+
+        //全部显示（点和面，隐藏热力图及点聚合）
+        document.getElementById('btn-all').onclick = function() {
+            setActiveButton('all');
+            setInfo('全部');
+            if (window.cluster) window.cluster.setData([]);  //隐藏聚合
+            markers.forEach(m => m.show());                  //显示点
+            polygons.forEach(p => p.show());                 //显示面
+            if (heatmap) heatmap.hide();                     //隐藏热力图
+
+
+        };
+    
+    </script>
+</body>
+</html>
