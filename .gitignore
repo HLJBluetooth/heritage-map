@@ -1,0 +1,23 @@
+gitignore
+# 忽略所有文档、表格、临时文件
+*.docx
+*.pdf
+*.xlsx
+*.xls
+*.tmp
+~$*
+~WRL*.tmp
+
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+
+# 忽略编辑器配置
+.vscode/
+.idea/
+
+# 如果你想保留个别文件，可以单独添加（例如不想忽略某个 Excel 可以用 ! 语法）
+# !需要保留的文件.xlsx
+
+my_points_map.html
+11my_points_map.html
