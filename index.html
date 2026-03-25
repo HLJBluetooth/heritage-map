@@ -142,6 +142,7 @@
     <!-- 控制面板，包含五个模式切换按钮 -->
     <div id="control-panel">
         <span style="font-weight:bold; margin-right:10px;">显示模式：</span>
+        <button id="btn-route">路径规划</button>
         <button id="btn-points" class="active">遗址点</button>
         <button id="btn-heatmap">热力图</button>
         <button id="btn-polygons">保护区面</button>
@@ -159,6 +160,7 @@
         <p>当前级别：<span id="map-zoom">12.5</span></p>
         <p>当前中心点：<span id="map-center">119.519746,41.321671</span></p>
     </div>
+    <script type="text/javascript">window._AMapSecurityConfig = {securityJsCode: '5047a74f5d33658af7e675ef52d67090'};</script>
     <!-- 引入高德地图JS API v2.0，并传入申请到的key -->
     <script src="https://webapi.amap.com/maps?v=2.0&key=42603e99afb421ee601302e6c136f810"></script>
     <!-- 引入高德示例中心的辅助工具JS，可能用于一些demo功能 -->
@@ -189,10 +191,15 @@
         map.on('zoomend', logMapinfo); 
                
         // 全局变量声明（用于跨函数共享数据）
-  
+        var currentInfoWindow = null;
         var markers = [];
         var polygons = [];
         var heatmap = null;
+        var routeMode = false;
+        var startPoint = null;         // 起点坐标 { lng, lat }
+        var endPoint = null;           // 终点坐标 { lng, lat }
+        var driving = null;            // 驾车规划实例
+        var routeMarkers = [];
 
         
         // 设置激活按钮样式（高亮当前模式对应的按钮）
@@ -206,6 +213,7 @@
             else if (mode === 'heatmap') document.getElementById('btn-heatmap').classList.add('active');
             else if (mode === 'polygons') document.getElementById('btn-polygons').classList.add('active');
             else if (mode === 'cluster') document.getElementById('btn-cluster').classList.add('active');
+            else if (mode === 'route') document.getElementById('btn-route').classList.add('active');
             else if (mode === 'all') document.getElementById('btn-all').classList.add('active');
         }
 
@@ -231,13 +239,17 @@
                             strokeColor: '#000000',
                             strokeWeight: 2,
                         });
-                        polygon.setMap(map);                       
+                        polygon.setMap(map);
+                        if(currentInfoWindow){
+                            currentInfoWindow.close();
+                        }                       
                         // 绑定点击事件，点击时弹出信息窗口显示该面类型
                         polygon.on('click', function(e) {
-                            new AMap.InfoWindow({
+                            currentInfoWindow = AMap.InfoWindow({
                                 content: '<div>' + poly.category + '</div>',
                                 offset: new AMap.Pixel(0, -30)
-                            }).open(map, e.lnglat);//e.lnglat是点击处坐标
+                            });
+                            currentInfoWindow.open(map, e.lnglat);//e.lnglat是点击处坐标
                         });
                         polygons.push(polygon);
                     } catch (e) {
@@ -258,15 +270,23 @@
                         marker.data = item;
                         // 绑定点击事件，点击时弹出信息窗口显示该面类型
                         marker.on('click', function(e) {
+                            if (routeMode){
+                                selectPoint(e.target.getPosition());
+                                return;
+                            }
                             var d = e.target.data;
                             var content = '<div style="padding:8px;">' +
                                           '<h4>' + d.h_name + '</h4>' +
                                           '<p>高程：' + d.height + '</p>' +
                                           '</div>';
-                            new AMap.InfoWindow({
+                            if(currentInfoWindow){
+                                currentInfoWindow.close();
+                            } 
+                            currentInfoWindow = new AMap.InfoWindow({
                                 content: content,
                                 offset: new AMap.Pixel(0, -30)
-                            }).open(map, e.target.getPosition());//e.target.getPosition()是遗址点坐标
+                            });
+                            currentInfoWindow.open(map, e.target.getPosition());//e.target.getPosition()是遗址点坐标
                         });
                         markers.push(marker);
                     } catch (e) {
@@ -394,49 +414,140 @@
                 markers.forEach(m => m.setMap(map));
             })
             .catch(err => console.error('加载数据失败：', err)); 
+
+        AMap.plugin(['AMap.Driving'], function() {
+            driving = new AMap.Driving({
+                map: map
+            });
+            console.log("路径规划插件已加载")
+        });
+        
+        function clearRouteTemp() {
+            // 清除临时标记
+            routeMarkers.forEach(m => m.setMap(null));
+            routeMarkers = [];
+            startPoint = null;
+            endPoint = null;
+        }
+
+        function addTempMarker(lnglat, title) {
+            var icon = title === '起点' ? 'https://webapi.amap.com/theme/v1.3/markers/n/start.png' : 'https://webapi.amap.com/theme/v1.3/markers/n/end.png';
+            var marker = new AMap.Marker({
+                position: lnglat,
+                title: title,
+                icon: icon,
+                offset: new AMap.Pixel(-10, -34)
+            });
+            marker.setMap(map);
+            routeMarkers.push(marker);
+        }
+
+        function selectPoint(lnglat) {
+            if (!startPoint) {
+                startPoint = lnglat;
+                addTempMarker(startPoint, '起点');
+                new AMap.InfoWindow({
+                    content: '起点已选中',
+                    offset: new AMap.Pixel(0, -30)
+                }).open(map, startPoint);
+            } else if (!endPoint) {
+                endPoint = lnglat;
+                addTempMarker(endPoint, '终点');
+                new AMap.InfoWindow({
+                    content: '终点已选中',
+                    offset: new AMap.Pixel(0, -30)
+                }).open(map, endPoint);
+                planRoute(); // 两个点都有了，开始规划
+            } else {
+                alert('已有路线，请先清除或重新进入路径规划模式');
+            }
+        }
+
+        function planRoute() {
+            if (!startPoint || !endPoint) return;
+            if (!driving) {
+                alert('驾车规划插件未就绪，请稍后再试');
+                return;
+            }
+            driving.search(startPoint, endPoint, function(status, result) {
+                if (status === 'complete') {
+                    var route = result.routes[0];
+                    var distance = (route.distance / 1000).toFixed(2) + '公里';
+                    var time = (route.time / 60).toFixed(0) + '分钟';
+                    if(currentInfoWindow){
+                        currentInfoWindow.close();
+                    }           
+                    currentInfoWindow = new AMap.InfoWindow({
+                        content: `<div>起点 → 终点<br>距离：${distance}<br>耗时：${time}</div>`,
+                        offset: new AMap.Pixel(0, -30)
+                    });
+                    currentInfoWindow.open(map, endPoint);
+                } else {
+                    alert('路线规划失败：' + result);
+                }
+            });
+            // 规划完成后自动清除临时标记并退出模式
+            routeMode = false;
+        }
+
+        map.on('click', function(e) {
+            // 如果处于路径规划模式，且点击的不是点标记（因为点标记事件已处理），则调用选点
+            if (routeMode) {
+                // 注意：e.target 可能是 null 或覆盖物对象，我们需要排除 marker
+                if (!e.target || !(e.target instanceof AMap.Marker)) {
+                    selectPoint(e.lnglat);
+                }
+            }
+        });
+        
         //遗址点模式
         document.getElementById('btn-points').onclick = function() {
             setActiveButton('points'); //更新按钮高亮
             setInfo('遗址点');         //更新信息卡片
-            
+            clearRouteTemp();
+            if (currentInfoWindow) currentInfoWindow.close();
             // 隐藏热力图和面，显示点
             if (heatmap) heatmap.hide();                    //隐藏热力图
             if (window.cluster) window.cluster.setData([]);  // ✅ 隐藏聚合
             polygons.forEach(p => p.hide());               //隐藏面
             markers.forEach(m => m.show());               // 显示所有点标记（注意show只是显示，之前已通过setMap添加过）
-
+            if (driving) driving.clear();           
         };
 
         //热力图模式
         document.getElementById('btn-heatmap').onclick = function() {
             setActiveButton('heatmap');
             setInfo('热力图');
-            
+            clearRouteTemp();
+            if (currentInfoWindow) currentInfoWindow.close();
             // 隐藏点和面，显示热力图
             if (window.cluster) window.cluster.setData([]);  //隐藏聚合
             markers.forEach(m => m.hide());     //隐藏点
             polygons.forEach(p => p.hide());    //隐藏面
             if (heatmap) heatmap.show();        //显示热力图
-
+            if (driving) driving.clear();
         };
         
         //保护区模式
         document.getElementById('btn-polygons').onclick = function() {
             setActiveButton('polygons');
             setInfo('保护区面');
-            
+            clearRouteTemp();
+            if (currentInfoWindow) currentInfoWindow.close();
             // 隐藏点和热力图，显示面
             if (window.cluster) window.cluster.setData([]);  //隐藏聚合
             markers.forEach(m => m.hide());                 //隐藏点
             polygons.forEach(p => p.show());                //显示面
             if (heatmap) heatmap.hide();                    //隐藏热力图
-
+            if (driving) driving.clear();
         };
 
         //点聚合模式
         document.getElementById('btn-cluster').onclick = function() {
             setActiveButton('cluster');
             setInfo('点聚合');
+            clearRouteTemp();
+            if (currentInfoWindow) currentInfoWindow.close();
             if (heatmap) heatmap.hide();               //隐藏热力图  
             polygons.forEach(p => p.hide());           //隐藏面
             markers.forEach(m => m.hide());            //隐藏原始点
@@ -445,21 +556,43 @@
             } else {
                 alert('聚合数据未准备好');
             }
-
+            if (driving) driving.clear();
         };
 
         //全部显示（点和面，隐藏热力图及点聚合）
         document.getElementById('btn-all').onclick = function() {
             setActiveButton('all');
             setInfo('全部');
+            clearRouteTemp();
+            if (currentInfoWindow) currentInfoWindow.close();
             if (window.cluster) window.cluster.setData([]);  //隐藏聚合
             markers.forEach(m => m.show());                  //显示点
             polygons.forEach(p => p.show());                 //显示面
             if (heatmap) heatmap.hide();                     //隐藏热力图
-
-
+            if (driving) driving.clear();      
         };
-    
+
+        document.getElementById('btn-route').onclick = function() {
+            setActiveButton('route');
+            setInfo('路径规划');
+            if (currentInfoWindow) currentInfoWindow.close();
+            // 隐藏热力图、面、聚合等（但保留遗址点）
+            if (heatmap) heatmap.hide();
+            if (window.cluster) window.cluster.setData([]);
+            polygons.forEach(p => p.hide());
+            markers.forEach(m => m.show());
+            // markers 保持显示，不隐藏
+
+            // 清除已有路线
+            if (driving) driving.clear();
+            clearRouteTemp(); 
+            // 激活路径规划模式
+            routeMode = true;
+            // 可选：重置起点终点
+            startPoint = null;
+            endPoint = null;
+        };
+        
     </script>
 </body>
 </html>
