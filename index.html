@@ -431,7 +431,7 @@
         }
 
         function addTempMarker(lnglat, title) {
-            var icon = title === '起点' ? 'https://webapi.amap.com/theme/v1.3/markers/n/start.png' : 'https://webapi.amap.com/theme/v1.3/markers/n/end.png';
+            var icon = title === '起点' ? 'https://webapi.amap.com/theme/v1.3/markers/n/start.png' : 'https://webapi.amap.com/theme/v1.3/markers/n/end.png'; //三元条件运算符判断title是否是'起点',是返回第一个不是则是第二个
             var marker = new AMap.Marker({
                 position: lnglat,
                 title: title,
@@ -446,17 +446,25 @@
             if (!startPoint) {
                 startPoint = lnglat;
                 addTempMarker(startPoint, '起点');
-                new AMap.InfoWindow({
+                if(currentInfoWindow){
+                    currentInfoWindow.close();
+                }  
+                currentInfoWindow = new AMap.InfoWindow({
                     content: '起点已选中',
                     offset: new AMap.Pixel(0, -30)
-                }).open(map, startPoint);
+                });
+                currentInfoWindow.open(map, startPoint);
             } else if (!endPoint) {
                 endPoint = lnglat;
                 addTempMarker(endPoint, '终点');
-                new AMap.InfoWindow({
+                if(currentInfoWindow){
+                    currentInfoWindow.close();
+                }   
+                currentInfoWindow = new AMap.InfoWindow({
                     content: '终点已选中',
                     offset: new AMap.Pixel(0, -30)
-                }).open(map, endPoint);
+                });
+                currentInfoWindow.open(map, endPoint);
                 planRoute(); // 两个点都有了，开始规划
             } else {
                 alert('已有路线，请先清除或重新进入路径规划模式');
