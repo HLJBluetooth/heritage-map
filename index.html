@@ -52,6 +52,94 @@
             background: #f90;
             color: white;
         }
+
+        /* 新增点悬浮按钮 */
+        #btn-add-point {
+            position: absolute;
+            bottom: 80px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 24px;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 模态框背景遮罩 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 模态框内容 */
+        .modal-content {
+            background: white;
+            width: 280px;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .modal-content h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+
+        .modal-content input,
+        .modal-content textarea {
+            width: 100%;
+            margin-bottom: 12px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .modal-content button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+
+        #get-location-btn {
+            background-color: #2196F3;
+            color: white;
+        }
+
+        #save-point-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        #close-modal-btn {
+            background-color: #ccc;
+        }
+
+        .location-status {
+            font-size: 12px;
+            color: gray;
+            margin: 8px 0;
+        }
+
+
         /* 信息卡片：位于右下角，显示当前模式 */
         .info-card {
             position: absolute;
@@ -135,7 +223,7 @@
         }
     </style>
 </head>
-<body>
+
 <body>
     <!-- 地图容器，高德地图将在此元素内渲染 -->
     <div id="container"></div>
@@ -153,12 +241,27 @@
     <div class="info-card" id="info-card">
         当前模式：显示遗址点
     </div>
-    
     <!-- 另一个信息卡片，显示地图当前级别和中心点坐标，id来自引入demo-center.css -->
     <div class="info">
         <h4>获取地图级别与中心点坐标</h4>
         <p>当前级别：<span id="map-zoom">12.5</span></p>
         <p>当前中心点：<span id="map-center">119.519746,41.321671</span></p>
+    </div>
+    <!-- 悬浮按钮 -->
+    <button id="btn-add-point">+</button>
+    <!-- 模态框 -->
+    <div id="add-point-modal" class="modal">
+        <div class="modal-content">
+            <h3>新增遗址点</h3>
+            <input type="text" id="point-name" placeholder="名称 *">
+            <input type="text" id="point-type" placeholder="类型（如古建筑）">
+            <textarea id="point-desc" rows="3" placeholder="描述"></textarea>
+            <input type="text" id="point-height" placeholder="高程（米）">
+            <button id="get-location-btn">获取当前位置</button>
+            <div id="location-status" class="location-status"></div>
+            <button id="save-point-btn">保存</button>
+            <button id="close-modal-btn">取消</button>
+        </div>
     </div>
     <script type="text/javascript">window._AMapSecurityConfig = {securityJsCode: '5047a74f5d33658af7e675ef52d67090'};</script>
     <!-- 引入高德地图JS API v2.0，并传入申请到的key -->
@@ -167,6 +270,7 @@
     <script src="https://a.amap.com/jsapi_demos/static/demo-center/js/demoutils.js"></script>
     <!-- 引入高德UI组件库，用于一些UI交互（如控件） -->
     <script src="https://webapi.amap.com/ui/1.1/main.js"></script>
+    <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
     <script>
         // 更新右下角信息卡片显示当前模式,function在一上来解析时就会找到所有的function而非按顺序从上到下执行
         function setInfo(text) {
@@ -177,6 +281,29 @@
             zoom: 12.5,
             center: [119.519746, 41.321671]
         });
+
+        window.app = cloudbase.init({
+            env: 'heritage-map-3gte7x06b42ce82b'   // 替换为你的环境ID
+        });
+
+        // 匿名登录（获取临时身份，以便“修改本人数据”生效）
+        const auth = window.app.auth();
+        window.db = window.app.database();
+        auth.anonymousAuthProvider().signIn()
+            .then(() => {
+
+                console.log("匿名登录成功");
+
+                loadUserPoints(window.db);
+                // 登录成功后再加载自定义点数据
+                // loadUserPoints();
+            })
+            .catch(err => {
+                console.error("匿名登录失败:", err);
+            });
+
+        // 获取数据库引用
+
 
         // 获取并显示当前地图级别和中心点
         function logMapinfo(){
@@ -193,6 +320,7 @@
         // 全局变量声明（用于跨函数共享数据）
         var currentInfoWindow = null;
         var markers = [];
+        var customMarkers = [];
         var polygons = [];
         var heatmap = null;
         var routeMode = false;
@@ -217,6 +345,270 @@
             else if (mode === 'all') document.getElementById('btn-all').classList.add('active');
         }
 
+        // 获取 DOM 元素
+        const addBtn = document.getElementById('btn-add-point');
+        const modal = document.getElementById('add-point-modal');
+        const closeBtn = document.getElementById('close-modal-btn');
+        const saveBtn = document.getElementById('save-point-btn');
+        const getLocationBtn = document.getElementById('get-location-btn');
+        const pointName = document.getElementById('point-name');
+        const pointType = document.getElementById('point-type');
+        const pointDesc = document.getElementById('point-desc');
+        const pointHeight = document.getElementById('point-height');
+        const locationStatus = document.getElementById('location-status');
+
+        let currentLocation = null;   // 存储当前获取的经纬度（WGS84）
+        let statusText = null;
+        // 显示模态框
+        addBtn.onclick = () => {
+            modal.style.display = 'flex';
+        };
+
+        // 关闭模态框并清空表单
+        closeBtn.onclick = () => {
+            modal.style.display = 'none';
+            pointName.value = '';
+            pointType.value = '';
+            pointDesc.value = '';
+            pointHeight.value = '';
+            locationStatus.innerText = '';
+            currentLocation = null;
+
+        };
+
+        // 获取当前位置（浏览器定位）
+        getLocationBtn.onclick = () => {
+            if (!navigator.geolocation) {
+                alert('浏览器不支持地理定位');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lng = position.coords.longitude;
+                    const lat = position.coords.latitude;
+                    const alt = position.coords.altitude;
+
+                    currentLocation = { lng, lat };
+                    
+                    let statusText = `坐标：${lng.toFixed(6)}, ${lat.toFixed(6)}`;
+                    if (alt !== null && !isNaN(alt)){
+                        // 如果海拔有效，自动填入高程输入框
+                        pointHeight.value = alt.toFixed(1);
+                        statusText += `，海拔：${alt.toFixed(1)}米`;                     
+                    } else {
+                        statusText += `，无法自动获取海拔，请手动输入`;
+                    }
+                    
+                    locationStatus.innerText = statusText;
+                },
+                (error) => {
+                    locationStatus.innerText = '获取位置失败：' + error.message;
+                    alert('获取位置失败：' + error.message);
+                },
+                {
+                    enableHighAccuracy: true,  // 启用高精度（使用GPS）
+                    timeout: 10000,            // 超时时间10秒
+                    maximumAge: 0              // 不使用缓存位置
+                }
+            );
+        };
+
+        // 保存点到云开发
+        saveBtn.onclick = async () => {
+            const name = pointName.value.trim();
+            if (!name) {
+                alert('请填写遗址点名称');
+                return;
+            }
+            if (!currentLocation) {
+                alert('请先获取当前位置');
+                return;
+            }
+
+            const data = {
+                name: name,
+                type: pointType.value.trim(),
+                description: pointDesc.value.trim(),
+                height: parseFloat(pointHeight.value) || null,
+                location: new db.Geo.Point(currentLocation.lng, currentLocation.lat),
+                createdAt: new Date()
+            };
+
+            try {
+                await db.collection('sites').add(data);
+                alert('保存成功！');
+                // 关闭模态框并刷新地图上的点
+                closeBtn.onclick();  // 复用关闭逻辑
+                await loadUserPoints(db);   // 重新加载自定义点
+            } catch (err) {
+                console.error('保存失败', err);
+                alert('保存失败：' + err.message);
+            }
+        };
+        
+        async function deletePointById(id, marker) {
+            if (!window.db) {
+                alert('数据库未就绪');
+                return;
+            }
+            try {
+                // 先查询（可选，用于确认）
+                const queryRes = await window.db.collection('sites').doc(id).get();
+                if (!queryRes.data || queryRes.data.length === 0) {
+                    alert('记录不存在或已被删除');
+                    return;
+                }
+
+                const result = await window.db.collection('sites').doc(id).remove();
+                console.log('删除结果:', result);
+                
+                if (result && result.deleted === 1) {
+                    // 删除成功，从地图和数组中移除
+                    if (marker && typeof marker.setMap === 'function') marker.setMap(null);
+                    const idxCus = customMarkers.indexOf(marker);
+                    if (idxCus !== -1) customMarkers.splice(idxCus, 1);
+                    const idxAll = markers.indexOf(marker);
+                    if (idxAll !== -1) markers.splice(idxAll, 1);
+                    alert('删除成功');
+                } else if (result && result.deleted === 0) {
+                    // 删除失败：权限不足或文档已被删除
+                    alert('删除失败：您可能没有权限删除此记录，或记录已不存在');
+                } else {
+                    alert('删除失败：未知错误');
+                }
+            } catch (err) {
+                console.error('删除失败', err);
+                alert('删除失败：' + err.message);
+            }
+        }
+
+
+        // WGS84 转 GCJ02 火星坐标系（高德地图使用）        
+        function wgs84_to_gcj02(lng, lat) {
+            const a = 6378245.0;
+            const ee = 0.00669342162296594323;
+            const pi = 3.1415926535897932384626;
+
+            function transformLat(x, y) {
+                let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+                ret += (20.0 * Math.sin(6.0 * x * pi) + 20.0 * Math.sin(2.0 * x * pi)) * 2.0 / 3.0;
+                ret += (20.0 * Math.sin(y * pi) + 40.0 * Math.sin(y / 3.0 * pi)) * 2.0 / 3.0;
+                ret += (160.0 * Math.sin(y / 12.0 * pi) + 320 * Math.sin(y * pi / 30.0)) * 2.0 / 3.0;
+                return ret;
+            }
+
+            function transformLng(x, y) {
+                let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+                ret += (20.0 * Math.sin(6.0 * x * pi) + 20.0 * Math.sin(2.0 * x * pi)) * 2.0 / 3.0;
+                ret += (20.0 * Math.sin(x * pi) + 40.0 * Math.sin(x / 3.0 * pi)) * 2.0 / 3.0;
+                ret += (150.0 * Math.sin(x / 12.0 * pi) + 300.0 * Math.sin(x / 30.0 * pi)) * 2.0 / 3.0;
+                return ret;
+            }
+
+            // 判断是否在中国境外，境外不偏移
+            if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) {
+                return [lng, lat];
+            }
+
+            let dlat = transformLat(lng - 105.0, lat - 35.0);
+            let dlng = transformLng(lng - 105.0, lat - 35.0);
+            let radlat = lat / 180.0 * pi;
+            let magic = Math.sin(radlat);
+            magic = 1 - ee * magic * magic;
+            let sqrtmagic = Math.sqrt(magic);
+            dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * pi);
+            dlng = (dlng * 180.0) / (a / sqrtmagic * Math.cos(radlat) * pi);
+            let mgLng = lng + dlng;
+            let mgLat = lat + dlat;
+            return [mgLng, mgLat];
+        }
+
+        // 从云开发加载所有自定义点并显示在地图上
+        async function loadUserPoints(db) {
+            // 1. 清除已有的自定义点标记（从地图移除并清空数组）
+            customMarkers.forEach(marker => marker.setMap(null));
+            customMarkers = [];
+
+            // 2. 从总标记数组中移除所有自定义点（避免重复）
+            markers = markers.filter(m => !m.isCustom);
+
+            try {
+                const res = await db.collection('sites').get();
+                const points = res.data;
+                console.log('加载自定义点数量：', points.length);
+
+                points.forEach(point => {
+                    // 坐标转换（WGS84 → GCJ02）
+                    const gcj = wgs84_to_gcj02(point.location.longitude, point.location.latitude);
+                    const lng = gcj[0];
+                    const lat = gcj[1];
+
+                    // 创建点标记
+                    const marker = new AMap.Marker({
+                        position: [lng, lat],
+                        title: point.name,
+                        icon: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png',
+                        offset: new AMap.Pixel(-10, -34)
+                    });
+
+                    // 存储完整数据，包括 _id 用于删除
+                    marker.data = {
+                        _id: point._id,                     // 云开发文档ID
+                        h_name: point.name,
+                        height: point.height || '',
+                        type: point.type || '',
+                        desc: point.description || '',
+                        isCustom: true                      // 标记为自定义点
+                    };
+                    marker.isCustom = true;                 // 也可直接挂载，便于筛选
+
+                    // 绑定点击事件（包含删除按钮）
+                    marker.on('click', function(e) {
+                        const d = e.target.data;
+                        let content = `<div style="padding:8px;"><h4>${d.h_name}</h4>`;
+                        if (d.type) content += `<p>类型：${d.type}</p>`;
+                        if (d.desc) content += `<p>描述：${d.desc}</p>`;
+                        if (d.height) content += `<p>高程：${d.height}米</p>`;
+                        // 只有自定义点显示删除按钮
+                        if (d.isCustom) {
+                            content += `<button id="delete-point-btn" data-id="${d._id}" style="margin-top:8px; background:#ff4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">删除此点</button>`;
+                        }
+                        content += `</div>`;
+
+                        const infoWindow = new AMap.InfoWindow({
+                            content: content,
+                            offset: new AMap.Pixel(0, -30)
+                        });
+                        infoWindow.open(map, e.target.getPosition());
+
+                        // 动态绑定删除按钮事件（按钮在信息窗口打开后才存在）
+                        setTimeout(() => {
+                            const delBtn = document.getElementById('delete-point-btn');
+                            if (delBtn) {
+                                delBtn.onclick = async (event) => {
+                                    event.stopPropagation();
+                                    const id = delBtn.getAttribute('data-id');
+                                    console.log('尝试删除 ID:', id);   // 打印 ID
+                                    if (confirm('确定要删除该遗址点吗？')) {
+                                        await deletePointById(id, marker);
+                                        infoWindow.close();
+                                    }
+                                };
+                            }
+                        }, 50);
+                    });
+
+                    // 添加到地图
+                    marker.setMap(map);
+
+                    // 存入自定义数组和总数组
+                    customMarkers.push(marker);
+                    markers.push(marker);
+                });
+            } catch (err) {
+                console.error('加载自定义点失败', err);
+            }
+        }
 
         // 使用fetch API异步加载同目录下的data.json文件
         fetch('data.json')
@@ -293,7 +685,7 @@
                         console.error('绘制点出错：', e, item);
                     }
                 });
-                
+
                 AMap.plugin(['AMap.MarkerCluster'], function() {
                     // 创建聚合管理器，参数：地图实例，点数据（初始为空），配置对象
                     window.cluster = new AMap.MarkerCluster(map, [], {
