@@ -187,14 +187,14 @@
             
             #btn-add-point {
                 position: absolute;
-                bottom: 130px;
+                bottom: 120px;
                 right: 20px;
                 width: 50px;
                 height: 50px;
                 border-radius: 50%;
                 background-color: #4CAF50;
                 color: white;
-                font-size: 20px;
+                font-size: 24px;
                 border: none;
                 cursor: pointer;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.3);
@@ -263,8 +263,8 @@
     <!-- 另一个信息卡片，显示地图当前级别和中心点坐标，id来自引入demo-center.css -->
     <div class="info">
         <h4>获取地图级别与中心点坐标</h4>
-        <p>当前级别：<span id="map-zoom">12.5</span></p>
-        <p>当前中心点：<span id="map-center">119.519746,41.321671</span></p>
+        <p>当前级别：<span id="map-zoom"></span></p>
+        <p>当前中心点：<span id="map-center"></span></p>
     </div>
     <!-- 悬浮按钮 -->
     <button id="btn-add-point">+</button>
@@ -328,10 +328,16 @@
         function logMapinfo(){
             var zoom = map.getZoom(); //获取当前地图级别
             var center = map.getCenter(); //获取当前地图中心位置
-
+            // 判断是否为移动端（屏幕宽度小于768px）
+            var isMobile = window.innerWidth < 768;
+            var decimals = isMobile ? 4 : 6;
+            
+            var lngFixed = center.getLng().toFixed(decimals);
+            var latFixed = center.getLat().toFixed(decimals);
+            
             document.querySelector("#map-zoom").innerText = zoom;
-            document.querySelector("#map-center").innerText = center.toString();
-        };
+            document.querySelector("#map-center").innerText = lngFixed + ',' + latFixed;
+        }
         // 监听地图移动结束和缩放结束事件，更新显示的级别和中心点
         map.on('moveend', logMapinfo);
         map.on('zoomend', logMapinfo); 
